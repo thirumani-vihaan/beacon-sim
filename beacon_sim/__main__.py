@@ -6,6 +6,8 @@
   python -m beacon_sim --sweep --seeds 3 --out runs            # all presets x seeds -> comparison table
   python -m beacon_sim --bench video.mp4 [--gt video_gt.csv]   # MP4 benchmark (PTZ bypassed), headless
   python -m beacon_sim --make-video samples/test.mp4 --preset NOISY --seconds 20
+  python -m beacon_sim --make-suite samples/suite --seconds 10                # 8 varied grader-style videos + GT
+  python -m beacon_sim --bench-dir samples/suite [--thresholds th.yaml] --out runs/bench2   # batch Benchmark-2
 """
 from __future__ import annotations
 
@@ -30,6 +32,10 @@ def main() -> None:
     ap.add_argument("--out", default="runs")
     ap.add_argument("--bench")
     ap.add_argument("--gt")
+    ap.add_argument("--gt-pixel-centre", action="store_true", help="GT integer coords are pixel centres (+0.5 px)")
+    ap.add_argument("--bench-dir", help="benchmark every video in this folder")
+    ap.add_argument("--thresholds", help="YAML of predefined error thresholds for --bench-dir")
+    ap.add_argument("--make-suite", help="write a suite of grader-style test videos into this folder")
     ap.add_argument("--make-video")
     ap.add_argument("--seconds", type=float, default=20)
     ap.add_argument("--judge", action="store_true")
@@ -38,7 +44,14 @@ def main() -> None:
     a = ap.parse_args()
 
     from .config import PRESETS, Scenario, preset
-    if a.make_video:
+    if a.make_suite:
+        from .video_bench import make_suite
+        make_suite(a.make_suite, a.seconds)
+    elif a.bench_dir:
+        from .video_bench import run_batch
+        rows = run_batch(a.bench_dir, a.out, a.thresholds, a.gt_pixel_centre)
+        print(f"{sum(r['threshold_all_pass'] for r in rows)} / {len(rows)} videos meet every threshold -> {Path(a.out) / 'batch_report.md'}")
+    elif a.make_video:
         from .video_bench import make_test_video
         sc = Scenario.load(a.scenario) if a.scenario else preset(a.preset)
         sc.seed = a.seed
@@ -50,9 +63,9 @@ def main() -> None:
         if gt is None:
             cand = Path(a.bench).with_name(Path(a.bench).stem + "_gt.csv")
             gt = str(cand) if cand.exists() else None
-        vb = VideoBenchmark(a.bench, gt)
+        vb = VideoBenchmark(a.bench, gt, pixel_centre=a.gt_pixel_centre)
         vb.run()
-        s = vb.log.write(a.out, Path(a.bench).stem + "_bench")
+        s = vb.write(a.out, Path(a.bench).stem + "_bench")
         print(json.dumps(s, indent=2, default=str))
     elif a.sweep:
         from .sim import run_headless
