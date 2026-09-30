@@ -12,6 +12,7 @@ class Tracker:
     CONFIRM = 3        # consistent hits to declare LOCK
     MISS_TO_COAST = 2  # consecutive misses before COAST
     COAST_MAX_S = 0.5  # coast on prediction this long, then widen search (REACQUIRE)
+    ACQ_MISS_ALLOW = 0  # M-of-N confirmation: misses tolerated while ACQUIRE-ing (MP4 mode uses 2)
 
     def __init__(self, dt: float, meas_sigma: float = 1.5, accel_sigma: float = 350.0, imm: bool = True,
                  manoeuvre_sigma: float = 2000.0):
@@ -29,6 +30,7 @@ class Tracker:
         self.state, self.hits, self.misses, self.coast_t = SEARCH, 0, 0, 0.0
         self.initialised = False
         self.pending: np.ndarray | None = None  # far re-acquisition candidate awaiting a second consistent hit
+        self.acq_miss = 0
 
     @staticmethod
     def _cv(dt: float, accel_sigma: float, meas_sigma: float) -> KalmanFilter:
@@ -119,7 +121,7 @@ class Tracker:
                 self._imm.update(meas.reshape(2, 1))
             else:
                 self.kf.update(meas.reshape(2, 1))
-            self.misses, self.coast_t = 0, 0.0
+            self.misses, self.coast_t, self.acq_miss = 0, 0.0, 0
             self.hits += 1
             if self.state in (SEARCH, ACQUIRE):
                 self.state = LOCK if self.hits >= self.CONFIRM else ACQUIRE
@@ -130,9 +132,11 @@ class Tracker:
                 self.pending = None
             self.misses += 1
             if self.state == ACQUIRE:
-                self.hits = 0
-                self.state = SEARCH
-                self.initialised = False
+                self.acq_miss += 1
+                if self.acq_miss > self.ACQ_MISS_ALLOW:
+                    self.hits, self.acq_miss = 0, 0
+                    self.state = SEARCH
+                    self.initialised = False
             elif self.state == LOCK and self.misses >= self.MISS_TO_COAST:
                 self.state = COAST
             if self.state in (COAST, REACQUIRE):
