@@ -1,4 +1,4 @@
-name: SEVERE
+name: SIH-MAX
 seed: 42
 duration_s: 40.0
 imu_aid: true
@@ -10,8 +10,8 @@ camera:
   fov_x_deg: 4.0
   fov_y_deg: 3.0
   rate_hz: 30.0
-  max_pan_dps: 5.0
-  max_tilt_dps: 5.0
+  max_pan_dps: 10.0
+  max_tilt_dps: 10.0
   control_hz: 30.0
   colour: false
   wide_field: true
@@ -44,10 +44,10 @@ disturb:
   gaussian_sigma: 20.0
   poisson: true
   jitter_px: 20.0
-  weather: haze
+  weather: clear
   contrast: 1.0
   brightness: 0.0
-  platform: circular
-  platform_px: 8.0
-  turbulence_cn2: 1.0e-14
+  platform: linear
+  platform_px: 20.0
+  turbulence_cn2: 0.0
   path_km: 2.0

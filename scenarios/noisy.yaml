@@ -13,11 +13,29 @@ camera:
   max_pan_dps: 5.0
   max_tilt_dps: 5.0
   control_hz: 30.0
+  colour: false
+  wide_field: true
 target:
   size: 10
+  shape: square
   motion: figure8
   speed: 120.0
+  start: random
+  start_xy:
+  - 1300.0
+  - 800.0
+  waypoints:
+  - - 700
+    - 700
+  - - 1300
+    - 700
+  - - 1300
+    - 1300
+  - - 700
+    - 1300
   brightness: 230.0
+  count: 1
+  decoy_brightness: 0.55
   occlusions:
   - - 18.0
     - 0.6
@@ -27,6 +45,8 @@ disturb:
   poisson: true
   jitter_px: 6.0
   weather: clear
+  contrast: 1.0
+  brightness: 0.0
   platform: none
   platform_px: 0.0
   turbulence_cn2: 0.0
