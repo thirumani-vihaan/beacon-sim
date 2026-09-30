@@ -523,9 +523,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.toggle()
 
     def export(self):
-        log = self.bench.log if self.bench else self.sim.log
         out = Path("runs") / time.strftime("%Y%m%d_%H%M%S")
-        s = log.write(out, "run")
+        s = self.bench.write(out, "run") if self.bench else self.sim.log.write(out, "run")
         self.status.show()
         self.status.setText(f"Performance log written to {out.resolve()}  ·  all specs met: {s.get('all_pass')}")
 
