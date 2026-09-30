@@ -44,8 +44,9 @@ class Target:
         self.cfg, self.rng = sc.target, rng
         self.W, self.H = sc.camera.screen_w, sc.camera.screen_h
         self.cx, self.cy = self.W / 2, self.H / 2
+        self.k = min(self.W, self.H) / 2000.0  # motion amplitudes scale with the screen (reference: official 2000 px)
         self.phase = rng.uniform(0, 2 * math.pi)
-        r0 = rng.uniform(250, 600)  # random start inside the uncertainty region around the boresight
+        r0 = rng.uniform(250, 600) * self.k  # random start inside the uncertainty region around the boresight
         self.pos = np.array([self.cx + r0 * math.cos(self.phase), self.cy + r0 * math.sin(self.phase)])
         if self.cfg.start == "centre":
             self.pos = np.array([self.cx, self.cy])
@@ -63,7 +64,7 @@ class Target:
 
     def update(self, t: float, dt: float) -> np.ndarray:
         m, v = self.cfg.motion, self.cfg.speed
-        A = 600.0
+        A = 600.0 * self.k
         if m == "waypoints":
             return self._waypoints(dt)
         if m == "circle":
@@ -76,13 +77,13 @@ class Target:
             self.pos = np.array([self.cx + A * math.sin(a), self.cy + 0.5 * A * math.sin(2 * a)])
             self._anchor(t)
         elif m == "spiral":
-            w = v / 400
-            r = 150 + 450 * (0.5 + 0.5 * math.sin(0.07 * t))
+            w = v / (400 * self.k)
+            r = (150 + 450 * (0.5 + 0.5 * math.sin(0.07 * t))) * self.k
             self.pos = np.array([self.cx + r * math.cos(self.phase + w * t), self.cy + r * math.sin(self.phase + w * t)])
             self._anchor(t)
         elif m == "sine":
             self.pos = self.pos + np.array([self.vel[0], 0]) * dt
-            self.pos[1] = self.cy + 350 * math.sin(2 * math.pi * 0.12 * t + self.phase)
+            self.pos[1] = self.cy + 350 * self.k * math.sin(2 * math.pi * 0.12 * t + self.phase)
             self._bounce()
         elif m == "random":
             # smooth random walk (Ornstein-Uhlenbeck on velocity), speed kept near the configured value
@@ -123,6 +124,7 @@ class Target:
         return self.pos.copy()
 
     def _bounce(self, margin: float = 150.0) -> None:
+        margin *= self.k
         for i, lim in ((0, self.W), (1, self.H)):
             if self.pos[i] < margin or self.pos[i] > lim - margin:
                 self.vel[i] = -self.vel[i]
