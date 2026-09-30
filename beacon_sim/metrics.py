@@ -23,6 +23,7 @@ class PerfLog:
         self.urad = urad_per_px
         self.meta = meta
         self.extra: dict = {}  # additional summary fields supplied by the caller (e.g. end-to-end FPS)
+        self.scenario: dict | None = None  # full scenario config, embedded in the HTML report
         self.t_wall0 = time.perf_counter()
 
     def add(self, **r) -> None:
@@ -105,6 +106,8 @@ class PerfLog:
         meta = dict(self.meta, python=platform.python_version(), machine=platform.processor() or platform.machine())
         (out / f"{stem}_summary.json").write_text(json.dumps({"meta": meta, "metrics": s}, indent=2), encoding="utf-8")
         (out / f"{stem}_summary.md").write_text(to_markdown(meta, s), encoding="utf-8")
+        from .report import make_html
+        (out / f"{stem}_report.html").write_text(make_html(self.rows, s, meta, self.scenario), encoding="utf-8")
         return s
 
 
