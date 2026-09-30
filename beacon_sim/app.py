@@ -1,6 +1,7 @@
 """BEACON-SIM desktop GUI (PySide6 + pyqtgraph)."""
 from __future__ import annotations
 
+import copy
 import html
 import math
 import sys
@@ -13,7 +14,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .config import PRESETS, Scenario, preset
+from .config import MOTIONS, PLATFORMS, PRESETS, SHAPES, STARTS, WEATHERS, Scenario, preset
 from .sim import Simulation, WF_SCALE
 from .tracker import ACQUIRE, COAST, LOCK, REACQUIRE, SEARCH
 from .video_bench import VideoBenchmark
@@ -33,6 +34,13 @@ QPushButton#judge { background: #7c5cff; color: white; }
 QSlider::groove:horizontal { height: 5px; background: #333a45; border-radius: 2px; }
 QSlider::handle:horizontal { background: #ffe45c; width: 14px; margin: -5px 0; border-radius: 7px; }
 QCheckBox::indicator { width: 15px; height: 15px; }
+QTabWidget::pane { background: #1b1f26; border: 1px solid #333a45; border-radius: 6px; top: -1px; }
+QTabWidget > QWidget, QTabWidget QWidget#qt_tabwidget_stackedwidget, QTabWidget QStackedWidget > QWidget { background: #1b1f26; }
+QTabBar::tab { background: #252b34; color: #9aa3b2; padding: 5px 14px; border: 1px solid #333a45; border-bottom: none;
+               border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 3px; font-weight: 600; }
+QTabBar::tab:selected { background: #ffe45c; color: #111; }
+QLineEdit, QDoubleSpinBox, QSpinBox { background: #252b34; border: 1px solid #3a414d; border-radius: 5px; padding: 2px 6px; color: #e6e8ee; }
+QLabel { background: transparent; }
 """
 
 # Scripted judge demo: (time_s, action, value)
@@ -179,35 +187,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                           label="limit 10 px", labelOpts={"color": "#ff6b5b", "position": 0.08}))
         right.addWidget(self.plot)
 
-        ctl = QtWidgets.QGroupBox("Scenario && disturbances (live)")
-        f = QtWidgets.QGridLayout(ctl)
-        self.cb_preset = QtWidgets.QComboBox()
-        self.cb_preset.addItems(PRESETS)
-        self.cb_motion = QtWidgets.QComboBox()
-        self.cb_motion.addItems(["line", "circle", "figure8", "random", "spiral", "sine"])
-        self.cb_weather = QtWidgets.QComboBox()
-        self.cb_weather.addItems(["clear", "haze", "fog", "rain", "lowlight"])
-        self.cb_platform = QtWidgets.QComboBox()
-        self.cb_platform.addItems(["none", "linear", "circular", "random", "figure8"])
-        self.sl_speed = self._slider(20, 300, 120)
-        self.sl_sp = self._slider(0, 10, 0)
-        self.sl_sigma = self._slider(0, 20, 0)
-        self.sl_jit = self._slider(0, 20, 0)
-        self.sl_plat = self._slider(0, 20, 0)
-        self.ck_poisson = QtWidgets.QCheckBox("Poisson")
-        self.ck_turb = QtWidgets.QCheckBox("Turbulence (Cn² 1e-14)")
-        self.ck_imu = QtWidgets.QCheckBox("IMU feed-forward (platform + jitter)")
-        rows = [("Preset", self.cb_preset), ("Target motion", self.cb_motion), ("Speed (px/s)", self.sl_speed),
-                ("Salt & pepper (%)", self.sl_sp), ("Gaussian σ", self.sl_sigma), ("Jitter (±px/frame)", self.sl_jit),
-                ("Weather", self.cb_weather), ("Platform motion", self.cb_platform), ("Platform (px/frame)", self.sl_plat)]
-        for r, (lab, w) in enumerate(rows):
-            f.addWidget(QtWidgets.QLabel(lab), r, 0)
-            f.addWidget(w, r, 1)
-        f.addWidget(self.ck_poisson, len(rows), 0)
-        f.addWidget(self.ck_turb, len(rows), 1)
-        f.addWidget(self.ck_imu, len(rows) + 1, 0, 1, 2)
-        right.addWidget(ctl)
-        self.ctl = ctl
+        self.ctl = self._build_editor()
+        right.addWidget(self.ctl)
         btns = QtWidgets.QGridLayout()
         self.bt_run = QtWidgets.QPushButton("▶  Run", objectName="primary")
         bt_reset = QtWidgets.QPushButton("⟲  Reset")
@@ -227,66 +208,281 @@ class MainWindow(QtWidgets.QMainWindow):
         bt_judge.clicked.connect(self.start_judge)
         bt_mp4.clicked.connect(self.open_mp4)
         bt_exp.clicked.connect(self.export)
+
+    # ------------------------------------------------------------------ scenario editor
+    # (section, object, attribute, label, kind, lo, hi, step, live, extra)
+    #   kind: int | float | pct | bool | choice | cn2 | xy | waypoints ; live=False -> needs "Apply & restart"
+    PARAMS = [
+        ("Target", "target", "shape", "Shape (row 9)", "choice", 0, 0, 0, True, SHAPES),
+        ("Target", "target", "size", "Size px (row 10)", "int", 2, 60, 1, True, None),
+        ("Target", "target", "motion", "Motion (row 12)", "choice", 0, 0, 0, True, MOTIONS),
+        ("Target", "target", "speed", "Speed px/s", "float", 0, 1000, 10, True, None),
+        ("Target", "target", "brightness", "Brightness", "float", 20, 255, 5, True, None),
+        ("Target", "target", "start", "Start (row 11)", "choice", 0, 0, 0, False, STARTS),
+        ("Target", "target", "start_xy", "Start x, y", "xy", 0, 8000, 10, False, None),
+        ("Target", "target", "count", "Targets (row 8)", "int", 1, 8, 1, False, None),
+        ("Target", "target", "decoy_brightness", "Decoy level", "float", 0.1, 1.0, 0.05, True, None),
+        ("Target", "target", "waypoints", "Waypoints", "waypoints", 0, 0, 0, True, None),
+        ("Camera & mount", "camera", "screen_w", "Screen W (row 1)", "int", 800, 8000, 100, False, None),
+        ("Camera & mount", "camera", "screen_h", "Screen H", "int", 800, 8000, 100, False, None),
+        ("Camera & mount", "camera", "res_w", "Camera W (row 3)", "int", 160, 2048, 16, False, None),
+        ("Camera & mount", "camera", "res_h", "Camera H", "int", 120, 2048, 16, False, None),
+        ("Camera & mount", "camera", "fov_x_deg", "FOV x ° (row 4)", "float", 0.5, 60, 0.5, False, None),
+        ("Camera & mount", "camera", "fov_y_deg", "FOV y °", "float", 0.5, 60, 0.5, False, None),
+        ("Camera & mount", "camera", "rate_hz", "Frame Hz (row 5)", "float", 10, 240, 1, False, None),
+        ("Camera & mount", "camera", "control_hz", "Control Hz (row 15)", "float", 5, 1000, 5, True, None),
+        ("Camera & mount", "camera", "max_pan_dps", "Pan °/s (row 13)", "float", 0.5, 60, 0.5, True, None),
+        ("Camera & mount", "camera", "max_tilt_dps", "Tilt °/s (row 14)", "float", 0.5, 60, 0.5, True, None),
+        ("Camera & mount", "camera", "colour", "Colour camera (row 2)", "bool", 0, 0, 0, True, None),
+        ("Camera & mount", "camera", "wide_field", "Wide-field cue", "bool", 0, 0, 0, True, None),
+        ("Camera & mount", "", "imu_aid", "IMU feed-forward", "bool", 0, 0, 0, True, None),
+        ("Disturbances", "disturb", "salt_pepper", "Salt & pepper %", "pct", 0, 50, 1, True, None),
+        ("Disturbances", "disturb", "gaussian_sigma", "Gaussian σ", "float", 0, 60, 1, True, None),
+        ("Disturbances", "disturb", "poisson", "Poisson noise", "bool", 0, 0, 0, True, None),
+        ("Disturbances", "disturb", "jitter_px", "Jitter ±px/frame", "float", 0, 60, 1, True, None),
+        ("Disturbances", "disturb", "weather", "Weather (21.4)", "choice", 0, 0, 0, True, WEATHERS),
+        ("Disturbances", "disturb", "contrast", "Contrast ×", "float", 0.05, 2.0, 0.05, True, None),
+        ("Disturbances", "disturb", "brightness", "Brightness ±", "float", -150, 150, 5, True, None),
+        ("Disturbances", "disturb", "platform", "Platform (21.5)", "choice", 0, 0, 0, True, PLATFORMS),
+        ("Disturbances", "disturb", "platform_px", "Platform ±px/frame", "float", 0, 60, 1, True, None),
+        ("Disturbances", "disturb", "turbulence_cn2", "Turbulence Cn²", "cn2", 0, 0, 0, True, None),
+    ]
+    CN2 = [("off", 0.0), ("weak 1e-15", 1e-15), ("moderate 1e-14", 1e-14), ("strong 5e-14", 5e-14)]
+
+    def _build_editor(self) -> QtWidgets.QWidget:
+        box = QtWidgets.QGroupBox("Scenario editor  ·  every official parameter")
+        v = QtWidgets.QVBoxLayout(box)
+        v.setContentsMargins(8, 14, 8, 6)
+        top = QtWidgets.QHBoxLayout()
+        self.cb_preset = QtWidgets.QComboBox()
+        self.cb_preset.addItems(PRESETS)
         self.cb_preset.activated.connect(lambda _: self.reset(self.cb_preset.currentText()))
-        for w in (self.cb_motion, self.cb_weather, self.cb_platform):
-            w.currentTextChanged.connect(self.apply_controls)
-        for w in (self.sl_speed, self.sl_sp, self.sl_sigma, self.sl_jit, self.sl_plat):
-            w.valueChanged.connect(self.apply_controls)
-        for w in (self.ck_poisson, self.ck_turb, self.ck_imu):
-            w.toggled.connect(self.apply_controls)
+        self.sp_seed = QtWidgets.QSpinBox()
+        self.sp_seed.setRange(0, 99999)
+        self.sp_seed.setPrefix("seed ")
+        bt_load = QtWidgets.QPushButton("Load…")
+        bt_save = QtWidgets.QPushButton("Save…")
+        self.bt_apply = QtWidgets.QPushButton("Apply && restart")
+        bt_load.clicked.connect(self.load_scenario)
+        bt_save.clicked.connect(self.save_scenario)
+        self.bt_apply.clicked.connect(self.apply_restart)
+        for w in (QtWidgets.QLabel("Preset"), self.cb_preset, self.sp_seed, bt_load, bt_save, self.bt_apply):
+            top.addWidget(w)
+        top.setStretch(1, 1)
+        v.addLayout(top)
+        tabs = QtWidgets.QTabWidget()
+        self.widgets: dict[str, QtWidgets.QWidget] = {}
+        grids: dict[str, QtWidgets.QGridLayout] = {}
+        counts: dict[str, int] = {}
+        for sec, obj, attr, label, kind, lo, hi, step, live, extra in self.PARAMS:
+            if sec not in grids:
+                page = QtWidgets.QWidget()
+                grids[sec] = QtWidgets.QGridLayout(page)
+                grids[sec].setContentsMargins(6, 6, 6, 4)
+                grids[sec].setHorizontalSpacing(8)
+                grids[sec].setVerticalSpacing(4)
+                tabs.addTab(page, sec.replace("&", "&&"))
+                counts[sec] = 0
+            w = self._make_widget(kind, lo, hi, step, extra)
+            key = f"{obj}.{attr}"
+            self.widgets[key] = w
+            self._connect(w, kind, lambda *_, k=key: self._on_param(k))
+            i = counts[sec]
+            span = 3 if kind == "waypoints" else 1
+            if span == 3 and i % 2:
+                i += 1
+            r, c = divmod(i, 2)
+            lab = QtWidgets.QLabel(label + ("" if live else " ⟲"))
+            lab.setToolTip("applies live" if live else "applies after 'Apply & restart'")
+            grids[sec].addWidget(lab, r, c * 2)
+            grids[sec].addWidget(w, r, c * 2 + 1, 1, span)
+            counts[sec] = i + (2 if span == 3 else 1)
+        for g in grids.values():
+            g.setColumnStretch(1, 1)
+            g.setColumnStretch(3, 1)
+        v.addWidget(tabs)
+        self.feas = QtWidgets.QLabel()
+        self.feas.setWordWrap(True)
+        self.feas.setStyleSheet("font-size:11px")
+        v.addWidget(self.feas)
+        return box
 
-    def _slider(self, lo, hi, v) -> QtWidgets.QSlider:
-        s = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        s.setRange(lo, hi)
-        s.setValue(v)
-        return s
+    def _make_widget(self, kind, lo, hi, step, extra):
+        if kind == "choice":
+            w = QtWidgets.QComboBox()
+            w.addItems(extra)
+        elif kind == "cn2":
+            w = QtWidgets.QComboBox()
+            w.addItems([n for n, _ in self.CN2])
+        elif kind == "bool":
+            w = QtWidgets.QCheckBox()
+        elif kind == "int":
+            w = QtWidgets.QSpinBox()
+            w.setRange(int(lo), int(hi))
+            w.setSingleStep(int(step))
+        elif kind == "xy":
+            w = QtWidgets.QLineEdit()
+            w.setPlaceholderText("x, y")
+        elif kind == "waypoints":
+            w = QtWidgets.QLineEdit()
+            w.setPlaceholderText("x1,y1; x2,y2; …  (user-defined path)")
+        else:
+            w = QtWidgets.QDoubleSpinBox()
+            w.setRange(lo, hi)
+            w.setSingleStep(step)
+            w.setDecimals(2 if step < 1 else 1)
+        return w
 
-    # ------------------------------------------------------------------ control
+    @staticmethod
+    def _connect(w, kind, fn):
+        if isinstance(w, QtWidgets.QComboBox):
+            w.currentTextChanged.connect(fn)
+        elif isinstance(w, QtWidgets.QCheckBox):
+            w.toggled.connect(fn)
+        elif isinstance(w, QtWidgets.QLineEdit):
+            w.editingFinished.connect(fn)
+        else:
+            w.valueChanged.connect(fn)
+
+    def _spec(self, key):
+        return next(p for p in self.PARAMS if f"{p[1]}.{p[2]}" == key)
+
+    @staticmethod
+    def _owner(sc: Scenario, obj: str):
+        return getattr(sc, obj) if obj else sc
+
+    def _read(self, key):
+        _, obj, attr, _, kind, *_ = self._spec(key)
+        w = self.widgets[key]
+        if kind == "choice":
+            return w.currentText()
+        if kind == "cn2":
+            return self.CN2[w.currentIndex()][1]
+        if kind == "bool":
+            return w.isChecked()
+        if kind == "pct":
+            return w.value() / 100.0
+        if kind == "int":
+            return int(w.value())
+        if kind in ("xy", "waypoints"):
+            try:
+                pts = [[float(a) for a in part.split(",")] for part in w.text().split(";") if part.strip()]
+                pts = [q for q in pts if len(q) == 2]
+            except ValueError:
+                return None
+            return (pts[0] if pts else None) if kind == "xy" else (pts if len(pts) >= 2 else None)
+        return float(w.value())
+
+    def _write(self, key, value):
+        _, obj, attr, _, kind, *_ = self._spec(key)
+        w = self.widgets[key]
+        if kind == "choice":
+            w.setCurrentText(str(value))
+        elif kind == "cn2":
+            w.setCurrentIndex(min(range(len(self.CN2)), key=lambda i: abs(self.CN2[i][1] - value)))
+        elif kind == "bool":
+            w.setChecked(bool(value))
+        elif kind == "pct":
+            w.setValue(value * 100.0)
+        elif kind == "xy":
+            w.setText(f"{value[0]:.0f}, {value[1]:.0f}")
+        elif kind == "waypoints":
+            w.setText("; ".join(f"{x:.0f},{y:.0f}" for x, y in value))
+        else:
+            w.setValue(value)
+
     def reset(self, name: str) -> None:
+        sc = preset(name)
+        sc.seed = self.sp_seed.value() if hasattr(self, "sp_seed") and self.sim is not None else sc.seed
+        self._start(sc)
+
+    def _start(self, sc: Scenario) -> None:
         self.bench = None
         self.ctl.setEnabled(True)
-        sc = preset(name)
         self.sim = Simulation(sc)
+        self.edit_sc = copy.deepcopy(self.sim.sc)
         self.err_hist.clear(), self.t_hist.clear(), self.state_hist.clear()
         self.events.clear()
         self._last_state = None
-        self._event(0.0, f"scenario {sc.name} loaded (seed {sc.seed})", '#9aa3b2')
-        self._load_controls(sc)
+        self._event(0.0, f"scenario {sc.name} loaded (seed {sc.seed}, config {sc.hash()})", '#9aa3b2')
+        for wmsg in self.sim.warnings:
+            self._event(0.0, "param: " + wmsg, "#ffb35c")
+        self._load_controls(self.sim.sc)
         self.render()
 
     def _load_controls(self, sc: Scenario) -> None:
-        widgets = [self.cb_preset, self.cb_motion, self.cb_weather, self.cb_platform, self.sl_speed, self.sl_sp,
-                   self.sl_sigma, self.sl_jit, self.sl_plat, self.ck_poisson, self.ck_turb, self.ck_imu]
-        for w in widgets:
+        self.edit_sc = copy.deepcopy(sc)
+        for w in list(self.widgets.values()) + [self.cb_preset, self.sp_seed]:
             w.blockSignals(True)
-        self.cb_preset.setCurrentText(sc.name)
-        self.cb_motion.setCurrentText(sc.target.motion)
-        self.cb_weather.setCurrentText(sc.disturb.weather)
-        self.cb_platform.setCurrentText(sc.disturb.platform)
-        self.sl_speed.setValue(int(sc.target.speed))
-        self.sl_sp.setValue(int(round(sc.disturb.salt_pepper * 100)))
-        self.sl_sigma.setValue(int(sc.disturb.gaussian_sigma))
-        self.sl_jit.setValue(int(sc.disturb.jitter_px))
-        self.sl_plat.setValue(int(sc.disturb.platform_px))
-        self.ck_poisson.setChecked(sc.disturb.poisson)
-        self.ck_turb.setChecked(sc.disturb.turbulence_cn2 > 0)
-        self.ck_imu.setChecked(sc.imu_aid)
-        for w in widgets:
+        if sc.name in PRESETS:
+            self.cb_preset.setCurrentText(sc.name)
+        self.sp_seed.setValue(int(sc.seed))
+        for key in self.widgets:
+            _, obj, attr, *_ = self._spec(key)
+            self._write(key, getattr(self._owner(sc, obj), attr))
+        for w in list(self.widgets.values()) + [self.cb_preset, self.sp_seed]:
             w.blockSignals(False)
+        self._pending(False)
+        self._update_feasibility()
 
-    def apply_controls(self, *_):
+    def _on_param(self, key):
         if not self.sim:
             return
-        sc = self.sim.sc
-        sc.target.motion = self.cb_motion.currentText()
-        sc.target.speed = float(self.sl_speed.value())
-        d = sc.disturb
-        d.weather, d.platform = self.cb_weather.currentText(), self.cb_platform.currentText()
-        d.salt_pepper, d.gaussian_sigma = self.sl_sp.value() / 100, float(self.sl_sigma.value())
-        d.jitter_px, d.platform_px, d.poisson = float(self.sl_jit.value()), float(self.sl_plat.value()), self.ck_poisson.isChecked()
-        d.turbulence_cn2 = 1e-14 if self.ck_turb.isChecked() else 0.0
-        sc.imu_aid = self.ck_imu.isChecked()
-        self.sim.retune()
+        _, obj, attr, _, kind, lo, hi, step, live, extra = self._spec(key)
+        val = self._read(key)
+        if val is None:
+            return
+        setattr(self._owner(self.edit_sc, obj), attr, val)
+        if not self.edit_sc.name.endswith("*"):
+            self.edit_sc.name += "*"  # edited copy of a preset
+        if not live:
+            self._pending(True)
+        else:
+            sc = self.sim.sc
+            setattr(self._owner(sc, obj), attr, val)
+            if attr == "size":
+                self.sim.det.size = int(val)
+            elif attr in ("max_pan_dps", "max_tilt_dps"):
+                self.sim.ctl = type(self.sim.ctl)(sc.camera)
+            elif attr == "wide_field":
+                self.sim.wide_field_cue = bool(val)
+            self.sim.retune()
+            self._event(self.sim.t, f"set {attr} = {val}", "#b59cff")
+        self._update_feasibility()
+
+    def apply_controls(self, *_):  # kept for the scripted judge demo
+        if self.sim:
+            self.sim.retune()
+
+    def _pending(self, on: bool) -> None:
+        self.bt_apply.setStyleSheet("background:#ffb35c;color:#111;border:2px solid #111" if on else "")
+
+    def apply_restart(self):
+        sc = copy.deepcopy(self.edit_sc)
+        sc.seed = self.sp_seed.value()
+        self._start(sc)
+
+    def _update_feasibility(self):
+        from .feasibility import analyse
+        f = analyse(copy.deepcopy(self.edit_sc))
+        if f["acquisition_guaranteed"]:
+            self.feas.setText(f"<span style='color:#5fd07a'>✓ physically feasible</span> <span style='color:#7d8696'>· slew {f['slew_px_s']:.0f} px/s, "
+                              f"needed {f['required_px_s']:.0f} px/s, worst-case acquisition {f['worst_case_acquisition_s']} s</span>")
+        else:
+            self.feas.setText("<span style='color:#ffb35c'>⚠ " + html.escape(" · ".join(f["notes"])) + "</span>")
+
+    def load_scenario(self):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Scenario (.yaml)", "scenarios", "YAML (*.yaml *.yml)")
+        if path:
+            self._start(Scenario.load(path))
+
+    def save_scenario(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save scenario", f"scenarios/{self.edit_sc.name.lower()}_custom.yaml", "YAML (*.yaml)")
+        if path:
+            sc = copy.deepcopy(self.edit_sc)
+            sc.seed = self.sp_seed.value()
+            sc.save(path)
+            self._event(self.sim.t if self.sim else 0.0, f"scenario saved: {Path(path).name}", "#9aa3b2")
 
     def occlude(self):
         if self.sim:
@@ -385,31 +581,38 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.bench:
             return self._render_bench()
         L = self.sim.last
+        cam = self.sim.sc.camera
         if not L:
-            frame = np.zeros((480, 640), np.uint8)
+            frame = np.zeros((cam.res_h, cam.res_w), np.uint8)
             L = dict(state=SEARCH, det=None, pred=None, cue=None, visible=True, track_err=0.0, t=0.0, proc_ms=0.0, los=self.sim.mount, true_pos=self.sim.target.pos)
         else:
             frame = L["frame"]
-        img = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        img = cv2.resize(img, (960, 720), interpolation=cv2.INTER_NEAREST)
-        k = 1.5
-        c = (480, 360)
+        src = L.get("frame_colour") if L.get("frame_colour") is not None else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        # letterbox any camera resolution into the 960 x 720 view
+        k = min(960 / cam.res_w, 720 / cam.res_h)
+        vw, vh = int(cam.res_w * k), int(cam.res_h * k)
+        img = np.zeros((720, 960, 3), np.uint8)
+        ox, oy = (960 - vw) // 2, (720 - vh) // 2
+        img[oy:oy + vh, ox:ox + vw] = cv2.resize(src, (vw, vh), interpolation=cv2.INTER_NEAREST)
+        c = (ox + vw // 2, oy + vh // 2)
+        P = lambda x, y: (int(ox + x * k), int(oy + y * k))  # noqa: E731  camera px -> view px
         state = L["state"]
         col = STATE_COL[state]
         cv2.line(img, (c[0] - 26, c[1]), (c[0] + 26, c[1]), (90, 220, 120), 2)
         cv2.line(img, (c[0], c[1] - 26), (c[0], c[1] + 26), (90, 220, 120), 2)
         cv2.circle(img, c, int(10 * k), (90, 220, 120), 1)
         if L.get("pred") is not None and state != SEARCH:
-            p = (int(L["pred"][0] * k), int(L["pred"][1] * k))
+            p = P(*L["pred"])
             g = int(self.sim.trk.gate() * k)
             cv2.circle(img, p, min(g, 600), (160, 120, 60), 1)
         det = L.get("det")
         if det is not None:
-            d = (int(det.x * k), int(det.y * k))
+            d = P(det.x, det.y)
             cv2.rectangle(img, (d[0] - 20, d[1] - 20), (d[0] + 20, d[1] + 20), (92, 228, 255), 2)
             cv2.line(img, c, d, (92, 228, 255), 1)
             cv2.putText(img, f"centroid ({det.x:.2f}, {det.y:.2f})  SNR {det.snr:.0f}", (d[0] + 26, d[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (92, 228, 255), 1, cv2.LINE_AA)
-        hud = f"t {L['t']:5.1f} s   FOV 4.0x3.0 deg   640x480 mono   30 Hz   err {L['track_err']:.1f} px ({L['track_err'] * self.sim.sc.camera.urad_per_px:.0f} urad)"
+        hud = (f"t {L['t']:5.1f} s   FOV {cam.fov_x_deg:g}x{cam.fov_y_deg:g} deg   {cam.res_w}x{cam.res_h} {'colour' if cam.colour else 'mono'}   "
+               f"{cam.rate_hz:g} Hz   err {L['track_err']:.1f} px ({L['track_err'] * cam.urad_per_px:.0f} urad)")
         cv2.rectangle(img, (0, 0), (960, 40), (20, 20, 24), -1)
         cv2.putText(img, hud, (14, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 232, 238), 1, cv2.LINE_AA)
         if state in (COAST, REACQUIRE) or (state == SEARCH and L["t"] > 0.1):
@@ -459,19 +662,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _overview(self, L):
         sc = self.sim.sc.camera
-        s = 190 / sc.screen_w
-        ov = cv2.resize(self.sim.renderer.bg, (190, 190), interpolation=cv2.INTER_AREA)
+        s = 190 / max(sc.screen_w, sc.screen_h)
+        ov = cv2.resize(self.sim.renderer.bg, (int(sc.screen_w * s), int(sc.screen_h * s)), interpolation=cv2.INTER_AREA)
         ov = cv2.cvtColor(np.clip(ov * 3, 0, 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
         pts = [(int(x * s), int(y * s)) for x, y in self.sim.trail]
         for a, b in zip(pts, pts[1:]):
             cv2.line(ov, a, b, (60, 90, 255), 1)
         if pts:
             cv2.circle(ov, pts[-1], 3, (60, 90, 255), -1)
+        for dp in L.get("decoys") or []:
+            cv2.circle(ov, (int(dp[0] * s), int(dp[1] * s)), 2, (150, 150, 150), -1)
         los = L["los"]
-        cv2.rectangle(ov, (int((los[0] - 320) * s), int((los[1] - 240) * s)), (int((los[0] + 320) * s), int((los[1] + 240) * s)), (92, 228, 255), 1)
+        hw, hh = sc.res_w / 2, sc.res_h / 2
+        cv2.rectangle(ov, (int((los[0] - hw) * s), int((los[1] - hh) * s)), (int((los[0] + hw) * s), int((los[1] + hh) * s)), (92, 228, 255), 1)
         if L.get("cue") is not None:
             cv2.drawMarker(ov, (int(L["cue"][0] * s), int(L["cue"][1] * s)), (255, 120, 255), cv2.MARKER_CROSS, 10, 1)
-        cv2.putText(ov, "SCREEN 2000x2000", (4, 184), cv2.FONT_HERSHEY_SIMPLEX, 0.33, (200, 200, 200), 1, cv2.LINE_AA)
+        ov = cv2.copyMakeBorder(ov, 0, 190 - ov.shape[0], 0, 190 - ov.shape[1], cv2.BORDER_CONSTANT, value=(20, 23, 28))
+        cv2.putText(ov, f"SCREEN {sc.screen_w}x{sc.screen_h}", (4, 184), cv2.FONT_HERSHEY_SIMPLEX, 0.33, (200, 200, 200), 1, cv2.LINE_AA)
         self.overview.setPixmap(np_to_pixmap(ov))
 
     def _event(self, t: float, msg: str, col: str) -> None:
