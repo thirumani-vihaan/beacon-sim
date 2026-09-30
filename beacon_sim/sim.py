@@ -57,6 +57,7 @@ class Simulation:
         self.feasibility = analyse(sc)
         self.log = PerfLog(c.urad_per_px, {"scenario": sc.name, "seed": sc.seed, "config_hash": sc.hash(),
                                            "feasibility": self.feasibility, "warnings": self.warnings})
+        self.log.scenario = sc.to_dict()
         self.wf_bg = cv2.resize(self.renderer.bg, (c.screen_w // WF_SCALE, c.screen_h // WF_SCALE), interpolation=cv2.INTER_AREA)
         self.wf_prev: np.ndarray | None = None
         self.cue_mem: tuple[np.ndarray, float] | None = None  # last confirmed cue (position, time)
@@ -67,8 +68,9 @@ class Simulation:
     def _platform(self) -> None:
         d, dt = self.sc.disturb, self.dt
         amp = d.platform_px * self.sc.camera.rate_hz  # px/frame -> px/s
-        if d.platform == "linear":  # row 21.5 "+/-N px/frame": constant-speed back-and-forth along a line (4 s period)
-            self.plat_v = amp * np.array([0.94, 0.34]) * (1.0 if (self.t % 4.0) < 2.0 else -1.0)
+        if d.platform == "linear":  # row 21.5 "+/-N px/frame": constant-speed back-and-forth along a line (4 s period),
+            # reversing over ~0.3 s (a real platform cannot flip its velocity in one frame)
+            self.plat_v = amp * np.array([0.94, 0.34]) * float(np.clip(4.0 * math.sin(2 * math.pi * self.t / 4.0), -1.0, 1.0))
         elif d.platform == "circular":
             a = 2 * math.pi * self.t / 4.0
             self.plat_v = amp * np.array([math.cos(a), math.sin(a)])
