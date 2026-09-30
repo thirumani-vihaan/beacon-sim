@@ -22,6 +22,7 @@ class PerfLog:
         self.rows: list[dict] = []
         self.urad = urad_per_px
         self.meta = meta
+        self.extra: dict = {}  # additional summary fields supplied by the caller (e.g. end-to-end FPS)
         self.t_wall0 = time.perf_counter()
 
     def add(self, **r) -> None:
@@ -85,7 +86,11 @@ class PerfLog:
             "processing_ms_p95": round(float(np.percentile(proc, 95)), 2),
         }
         s["pass"] = {k: _check(s[k], *SPECS[k]) for k in SPECS}
-        s["all_pass"] = bool(all(s["pass"].values()))
+        if self.meta.get("ground_truth") is False:  # MP4 without ground truth: truth-based metrics are not applicable
+            for k in ("mean_tracking_error_px", "target_loss_pct"):
+                s["pass"][k] = None
+        s.update(self.extra)
+        s["all_pass"] = bool(all(v for v in s["pass"].values() if v is not None))
         return s
 
     def write(self, out_dir: str | Path, stem: str = "run") -> dict:
@@ -117,7 +122,7 @@ def to_markdown(meta: dict, s: dict) -> str:
     for k, v in s.items():
         if k in ("pass", "all_pass"):
             continue
-        res = ("PASS" if s["pass"][k] else "FAIL") if k in s["pass"] else ""
+        res = ({True: "PASS", False: "FAIL", None: "N/A"}[s["pass"][k]]) if k in s["pass"] else ""
         L.append(f"| {k} | {v} | {spec_txt.get(k, '')} | {res} |")
     L += ["", f"**Overall: {'ALL OFFICIAL SPECS MET' if s.get('all_pass') else 'SOME SPECS NOT MET'}**"]
     fz = meta.get("feasibility")
