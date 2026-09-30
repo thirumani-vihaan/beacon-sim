@@ -22,11 +22,17 @@ class CameraCfg:
     rate_hz: float = 30.0         # row 5: >= 30 Hz
     max_pan_dps: float = 5.0      # rows 13-14: default 5 deg/s
     max_tilt_dps: float = 5.0
-    control_hz: float = 30.0      # row 15: >= 20 Hz
+    control_hz: float = 30.0      # row 15: >= 20 Hz (pan-tilt command rate, independent of the frame rate)
+    colour: bool = False          # row 2: monochrome FPA (default) | optional colour
+    wide_field: bool = True       # acquisition aid: low-res whole-screen sensor cues the narrow camera
 
     @property
     def px_per_deg(self) -> float:
         return self.res_w / self.fov_x_deg
+
+    @property
+    def px_per_deg_y(self) -> float:
+        return self.res_h / self.fov_y_deg
 
     @property
     def urad_per_px(self) -> float:
@@ -35,10 +41,16 @@ class CameraCfg:
 
 @dataclass
 class TargetCfg:
-    size: int = 10                # row 10: 5-20 px, default 10 (square, row 9)
-    motion: str = "figure8"       # row 12: line | circle | figure8 | random | spiral | sine
+    size: int = 10                # row 10: 5-20 px, default 10
+    shape: str = "square"         # row 9: square (default) | circle | diamond | gaussian
+    motion: str = "figure8"       # row 12: line | circle | figure8 | random | spiral | sine | waypoints
     speed: float = 120.0          # px/s on the screen
+    start: str = "random"         # row 11: random (default) | centre | xy  (xy uses start_xy)
+    start_xy: list = field(default_factory=lambda: [1300.0, 800.0])
+    waypoints: list = field(default_factory=lambda: [[700, 700], [1300, 700], [1300, 1300], [700, 1300]])  # user-defined path
     brightness: float = 230.0
+    count: int = 1                # row 8: 1 mandatory; >1 adds dimmer decoy spots (multiple targets, optional)
+    decoy_brightness: float = 0.55  # decoy intensity relative to the beacon
     occlusions: list = field(default_factory=lambda: [[18.0, 0.6]])  # [t_start, duration]: beacon off, tests re-acquisition
 
 
@@ -49,7 +61,9 @@ class DisturbCfg:
     poisson: bool = False
     jitter_px: float = 0.0        # row 21.3: max +/-20 px/frame
     weather: str = "clear"        # row 21.4: clear | haze | fog | rain | lowlight
-    platform: str = "none"        # row 21.5: none | linear | circular | random | figure8
+    contrast: float = 1.0         # row 21.4: user-defined contrast factor (applied on top of the weather preset)
+    brightness: float = 0.0       # row 21.4: user-defined brightness offset (grey levels, negative = darker)
+    platform: str = "none"        # row 21.5: none | linear | circular | random | spiral | figure8
     platform_px: float = 0.0      # max +/-20 px/frame
     turbulence_cn2: float = 0.0   # advanced physics layer (m^-2/3); 0 = off
     path_km: float = 2.0
@@ -67,6 +81,41 @@ class Scenario:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    def validate(self) -> list[str]:
+        """Clamp every parameter into a range the simulator supports; returns human-readable warnings."""
+        w: list[str] = []
+
+        def clamp(obj, name, lo, hi):
+            v = getattr(obj, name)
+            nv = type(v)(min(max(v, lo), hi))
+            if nv != v:
+                w.append(f"{name}={v} clamped to {nv} (allowed {lo}..{hi})")
+                setattr(obj, name, nv)
+
+        c, t, d = self.camera, self.target, self.disturb
+        clamp(c, "screen_w", 800, 8000), clamp(c, "screen_h", 800, 8000)
+        clamp(c, "res_w", 160, 2048), clamp(c, "res_h", 120, 2048)
+        clamp(c, "fov_x_deg", 0.5, 60.0), clamp(c, "fov_y_deg", 0.5, 60.0)
+        clamp(c, "rate_hz", 10.0, 240.0), clamp(c, "control_hz", 5.0, 1000.0)
+        clamp(c, "max_pan_dps", 0.5, 60.0), clamp(c, "max_tilt_dps", 0.5, 60.0)
+        clamp(t, "size", 2, 60), clamp(t, "speed", 0.0, 2000.0), clamp(t, "brightness", 20.0, 255.0)
+        clamp(d, "salt_pepper", 0.0, 0.5), clamp(d, "gaussian_sigma", 0.0, 60.0)
+        clamp(d, "jitter_px", 0.0, 60.0), clamp(d, "platform_px", 0.0, 60.0)
+        clamp(d, "contrast", 0.05, 2.0), clamp(d, "brightness", -150.0, 150.0)
+        clamp(t, "count", 1, 8), clamp(t, "decoy_brightness", 0.1, 1.0)
+        for name, allowed in (("shape", SHAPES), ("motion", MOTIONS), ("start", STARTS)):
+            if getattr(t, name) not in allowed:
+                w.append(f"{name}={getattr(t, name)!r} unknown -> {allowed[0]}")
+                setattr(t, name, allowed[0])
+        if d.weather not in WEATHERS:
+            w.append(f"weather={d.weather!r} unknown -> clear"); d.weather = "clear"
+        if d.platform not in PLATFORMS:
+            w.append(f"platform={d.platform!r} unknown -> none"); d.platform = "none"
+        if len(t.waypoints) < 2:
+            w.append("waypoints need at least 2 points -> default square path")
+            t.waypoints = TargetCfg().waypoints
+        return w
 
     def hash(self) -> str:
         return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True).encode()).hexdigest()[:12]
@@ -100,7 +149,13 @@ SPECS = {
     "processing_fps": (">=", 20.0),
 }
 
-PRESETS = ["SIH-OFFICIAL", "NOISY", "FOG-JITTER", "RAIN-LOWLIGHT", "SEVERE"]
+SHAPES = ["square", "circle", "diamond", "gaussian"]
+MOTIONS = ["line", "circle", "figure8", "random", "spiral", "sine", "waypoints"]
+STARTS = ["random", "centre", "xy"]
+WEATHERS = ["clear", "haze", "fog", "rain", "lowlight"]
+PLATFORMS = ["none", "linear", "circular", "random", "spiral", "figure8"]
+
+PRESETS = ["SIH-OFFICIAL", "NOISY", "FOG-JITTER", "RAIN-LOWLIGHT", "SIH-MAX", "SEVERE"]
 
 
 def preset(name: str) -> Scenario:
@@ -116,7 +171,12 @@ def preset(name: str) -> Scenario:
     elif name == "RAIN-LOWLIGHT":
         d.weather, d.gaussian_sigma, d.salt_pepper = "rain", 12.0, 0.03
         t.motion = "random"
-    elif name == "SEVERE":
+    elif name == "SIH-MAX":  # every official disturbance at its maximum at once (rows 21.1-21.5)
+        d.salt_pepper, d.gaussian_sigma, d.poisson, d.jitter_px = 0.10, 20.0, True, 20.0
+        d.platform, d.platform_px = "linear", 20.0
+        t.motion = "random"
+        s.camera.max_pan_dps = s.camera.max_tilt_dps = 10.0  # rows 13-14 upper limit: 5 deg/s cannot outrun 600 px/s platform motion
+    elif name == "SEVERE":  # beyond the official spec: SIH maxima + haze + circular platform + turbulence
         d.salt_pepper, d.gaussian_sigma, d.poisson, d.jitter_px = 0.10, 20.0, True, 20.0
         d.weather, d.platform, d.platform_px, d.turbulence_cn2 = "haze", "circular", 8.0, 1e-14
         t.motion = "random"
