@@ -16,6 +16,7 @@ recordings/
 samples/*.mp4
 samples/*.avi
 samples/*_gt.csv
+samples/suite/
 
 # OS / editor
 .DS_Store
