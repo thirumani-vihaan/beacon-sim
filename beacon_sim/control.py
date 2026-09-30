@@ -9,10 +9,11 @@ from .config import CameraCfg
 
 
 class PanTiltController:
-    def __init__(self, cam: CameraCfg, kp: float = 7.0, ki: float = 0.8, kd: float = 0.05, deadzone_px: float = 0.3):
+    def __init__(self, cam: CameraCfg, kp: float = 12.0, ki: float = 0.8, kd: float = 0.05, deadzone_px: float = 0.3):
         self.cam = cam
         self.kp, self.ki, self.kd, self.dz = kp, ki, kd, deadzone_px
-        self.max_v = np.array([cam.max_pan_dps, cam.max_tilt_dps]) * cam.px_per_deg  # px/s on the screen
+        # official rows 13-14: independent pan / tilt limits, converted to screen px/s per axis
+        self.max_v = np.array([cam.max_pan_dps * cam.px_per_deg, cam.max_tilt_dps * cam.px_per_deg_y])
         self.integ = np.zeros(2)
         self.prev_err = np.zeros(2)
         self.search_t = 0.0
