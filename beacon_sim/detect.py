@@ -24,11 +24,14 @@ class BeaconDetector:
     -> intensity-weighted sub-pixel centroid on the de-noised image.
     """
 
-    def __init__(self, target_size: int = 10, k_sigma: float = 6.0, min_snr: float = 9.0, median: bool = True):
+    def __init__(self, target_size: int = 10, k_sigma: float = 6.0, min_snr: float = 9.0, median: bool = True,
+                 min_snr_near: float = 6.5):
         self.size, self.k, self.min_snr, self.median = target_size, k_sigma, min_snr, median
+        self.min_snr_near = min_snr_near  # gated detection: a weaker hit is accepted right where the tracker predicts
+        self.edge_frac = 0.08
 
     def detect(self, frame: np.ndarray, predict: tuple[float, float] | None = None, gate: float = 1e9,
-               roi: tuple[int, int, int, int] | None = None) -> Detection | None:
+               roi: tuple[int, int, int, int] | None = None, near: float = 0.0) -> Detection | None:
         ox = oy = 0
         img = frame
         if roi is not None:
@@ -46,7 +49,7 @@ class BeaconDetector:
         sample = resp[::4, ::4]
         mu = float(np.median(sample))
         mad = max(float(np.median(np.abs(sample - mu))) * 1.4826, 1.0)  # floor: clean frames must not threshold at ~0
-        thr = mu + self.k * mad
+        thr = mu + (min(self.k, self.min_snr_near) if (predict is not None and near > 0) else self.k) * mad
         mask = (resp > thr).astype(np.uint8)
         n, lab, stats, cents = cv2.connectedComponentsWithStats(mask, connectivity=8)
         if n <= 1:
@@ -61,9 +64,10 @@ class BeaconDetector:
             x, y, w, h = stats[i, :4]
             peak = float(resp[y:y + h, x:x + w].max())
             snr = (peak - mu) / mad
-            if snr < self.min_snr:
-                continue
             cx, cy = cents[i][0] + ox, cents[i][1] + oy
+            close = predict is not None and near > 0 and np.hypot(cx - predict[0], cy - predict[1]) <= near
+            if snr < (self.min_snr_near if close else self.min_snr):
+                continue
             m = max(2, self.size // 2)
             if cx < m or cy < m or cx > frame.shape[1] - m or cy > frame.shape[0] - m:
                 continue  # filter/border artefacts at the image edge
@@ -83,15 +87,19 @@ class BeaconDetector:
         return self._refine(med, hp, cx - ox, cy - oy, snr, area, ox, oy)
 
     def _refine(self, med, hp, cx, cy, snr, area, ox, oy) -> Detection:
-        r = self.size // 2 + 4
+        r = self.size // 2 + max(4, self.size // 3)
         x0, y0 = int(max(0, round(cx) - r)), int(max(0, round(cy) - r))
         x1, y1 = int(min(hp.shape[1], round(cx) + r + 1)), int(min(hp.shape[0], round(cy) + r + 1))
         patch = hp[y0:y1, x0:x1]
-        if patch.size == 0:
+        if patch.shape[0] < 5 or patch.shape[1] < 5:
             return Detection(cx + ox, cy + oy, snr, area)
-        base = np.percentile(patch, 60)
+        # background level from the window's outer ring (never from the spot itself, whatever its size)
+        ring = np.concatenate([patch[:2].ravel(), patch[-2:].ravel(), patch[2:-2, :2].ravel(), patch[2:-2, -2:].ravel()])
+        base = float(np.median(ring))
         wts = np.clip(patch - base, 0, None)
-        wts = wts * (wts > 0.35 * wts.max())
+        ring_sig = 1.4826 * float(np.median(np.abs(ring - base))) + 1e-6
+        # keep every pixel clearly above the local noise (partial-coverage edge pixels included -> unbiased centroid)
+        wts = wts * (wts > max(3.0 * ring_sig, self.edge_frac * wts.max()))
         s = wts.sum()
         if s <= 0:
             return Detection(cx + ox, cy + oy, snr, area)
