@@ -40,6 +40,9 @@ class PerfLog:
         dt = R[1]["t"] - R[0]["t"] if len(R) > 1 else 1 / 30
         first = next((i for i, r in enumerate(R) if r["state"] == LOCK), None)
         acq = R[first]["t"] if first is not None else float("nan")
+        # alternative reading of row 16: time from the beacon first entering the camera FOV until LOCK
+        fov0 = next((i for i, r in enumerate(R) if r["in_fov"]), None)
+        acq_fov = (R[first]["t"] - R[fov0]["t"]) if (first is not None and fov0 is not None and fov0 <= first) else float("nan")
         post = R[first:] if first is not None else []
         vis = [r for r in post if r["visible"]]
         settle = acq + 0.5  # tracking-error statistics start 0.5 s after first lock (pull-in transient excluded)
@@ -67,6 +70,7 @@ class PerfLog:
             "processing_fps": round(1000 / max(float(proc.mean()), 1e-6), 1),
             "wall_fps": round(len(R) / max(wall, 1e-6), 1),
             "acquisition_time_s": round(acq, 3),
+            "acquisition_from_fov_s": round(acq_fov, 3),
             "mean_tracking_error_px": round(float(np.nanmean(te)), 2),
             "max_tracking_error_px": round(float(np.nanmax(te)), 2),
             "mean_tracking_error_urad": round(float(np.nanmean(te)) * self.urad, 1),
@@ -116,4 +120,12 @@ def to_markdown(meta: dict, s: dict) -> str:
         res = ("PASS" if s["pass"][k] else "FAIL") if k in s["pass"] else ""
         L.append(f"| {k} | {v} | {spec_txt.get(k, '')} | {res} |")
     L += ["", f"**Overall: {'ALL OFFICIAL SPECS MET' if s.get('all_pass') else 'SOME SPECS NOT MET'}**"]
+    fz = meta.get("feasibility")
+    if fz:
+        L += ["", "## Physical feasibility", "",
+              f"Slew budget {fz['slew_px_s']} px/s · required {fz['required_px_s']} px/s · spare {fz['spare_px_s']} px/s · "
+              f"worst-case acquisition {fz['worst_case_acquisition_s']} s"]
+        L += [f"- ⚠ {n}" for n in fz["notes"]] or ["- ✓ every official spec is physically achievable for this scenario"]
+    if meta.get("warnings"):
+        L += ["", "## Parameter warnings", ""] + [f"- {w}" for w in meta["warnings"]]
     return "\n".join(L) + "\n"
