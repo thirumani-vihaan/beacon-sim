@@ -1,0 +1,33 @@
+name: RAIN-LOWLIGHT
+seed: 42
+duration_s: 40.0
+imu_aid: true
+camera:
+  screen_w: 2000
+  screen_h: 2000
+  res_w: 640
+  res_h: 480
+  fov_x_deg: 4.0
+  fov_y_deg: 3.0
+  rate_hz: 30.0
+  max_pan_dps: 5.0
+  max_tilt_dps: 5.0
+  control_hz: 30.0
+target:
+  size: 10
+  motion: random
+  speed: 120.0
+  brightness: 230.0
+  occlusions:
+  - - 18.0
+    - 0.6
+disturb:
+  salt_pepper: 0.03
+  gaussian_sigma: 12.0
+  poisson: false
+  jitter_px: 0.0
+  weather: rain
+  platform: none
+  platform_px: 0.0
+  turbulence_cn2: 0.0
+  path_km: 2.0

@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "scenario": "NOISY",
+    "seed": 1,
+    "config_hash": "cee850545f48",
+    "python": "3.11.9",
+    "machine": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel"
+  },
+  "metrics": {
+    "simulation_duration_s": 30.0,
+    "frames": 900,
+    "processing_fps": 195.0,
+    "wall_fps": 38.8,
+    "acquisition_time_s": 0.067,
+    "mean_tracking_error_px": 3.19,
+    "max_tracking_error_px": 82.55,
+    "mean_tracking_error_urad": 348.4,
+    "centroid_rmse_px": 0.208,
+    "mean_centroid_error_px": 0.186,
+    "lock_retention_pct": 100.0,
+    "target_loss_pct": 0.0,
+    "reacquisitions": 1,
+    "max_reacquisition_s": 0.033,
+    "mean_reacquisition_s": 0.033,
+    "processing_ms_mean": 5.13,
+    "processing_ms_p95": 11.4,
+    "pass": {
+      "acquisition_time_s": true,
+      "mean_tracking_error_px": true,
+      "target_loss_pct": true,
+      "max_reacquisition_s": true,
+      "processing_fps": true
+    },
+    "all_pass": true
+  }
+}

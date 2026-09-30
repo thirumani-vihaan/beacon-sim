@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "scenario": "RAIN-LOWLIGHT",
+    "seed": 1,
+    "config_hash": "9fe59ccbef9b",
+    "python": "3.11.9",
+    "machine": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel"
+  },
+  "metrics": {
+    "simulation_duration_s": 30.0,
+    "frames": 900,
+    "processing_fps": 123.2,
+    "wall_fps": 31.9,
+    "acquisition_time_s": 0.367,
+    "mean_tracking_error_px": 6.08,
+    "max_tracking_error_px": 75.64,
+    "mean_tracking_error_urad": 662.8,
+    "centroid_rmse_px": 0.177,
+    "mean_centroid_error_px": 0.163,
+    "lock_retention_pct": 100.0,
+    "target_loss_pct": 0.0,
+    "reacquisitions": 1,
+    "max_reacquisition_s": 0.033,
+    "mean_reacquisition_s": 0.033,
+    "processing_ms_mean": 8.11,
+    "processing_ms_p95": 20.65,
+    "pass": {
+      "acquisition_time_s": true,
+      "mean_tracking_error_px": true,
+      "target_loss_pct": true,
+      "max_reacquisition_s": true,
+      "processing_fps": true
+    },
+    "all_pass": true
+  }
+}

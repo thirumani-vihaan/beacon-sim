@@ -1,0 +1,8 @@
+numpy>=2.0
+opencv-python>=4.9
+PySide6>=6.6
+pyqtgraph>=0.13
+filterpy>=1.4.5
+scipy>=1.11
+PyYAML>=6.0
+pytest>=8.0

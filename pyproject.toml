@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beacon-sim"
+version = "0.1.0"
+description = "AI-based virtual camera tracking for coarse alignment of mobile FSOC terminals (SIH26169)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Team Larpers" }]
+keywords = ["fsoc", "pointing-acquisition-tracking", "kalman-filter", "computer-vision", "simulation", "sih2026"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+    "numpy>=2.0",
+    "opencv-python>=4.9",
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "filterpy>=1.4.5",
+    "scipy>=1.11",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+beacon-sim = "beacon_sim.__main__:main"
+
+[tool.setuptools]
+packages = ["beacon_sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

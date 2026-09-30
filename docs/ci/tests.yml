@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - name: Headless run on the official preset
+        run: python -m beacon_sim --headless --preset SIH-OFFICIAL --duration 20 --out runs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: performance-log
+          path: runs/
