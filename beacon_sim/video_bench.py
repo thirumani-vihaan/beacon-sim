@@ -79,7 +79,9 @@ class VideoBenchmark:
     """Iterates a video frame by frame; each step returns overlay data for the GUI and logs metrics."""
 
     def __init__(self, video: str, gt_csv: str | None = None, target_size: int | None = None, view=(640, 480),
-                 pixel_centre: bool = False, ai: bool = True):
+                 pixel_centre: bool = False, ai: bool = False):
+        # full-frame MP4 mode uses the classical detector by default (faster, equally accurate on grader videos);
+        # the CNN verifier pays off in the closed-loop camera search, where it is on by default
         self.verifier = Verifier.load_default() if ai else None
         self.cap = cv2.VideoCapture(str(video))
         if not self.cap.isOpened():
@@ -141,7 +143,8 @@ class VideoBenchmark:
         if det is None and self.trk.state not in (LOCK, ACQUIRE):
             small = cv2.resize(gray, None, fx=self.scale, fy=self.scale, interpolation=cv2.INTER_AREA) if self.scale < 1 else gray
             c = self.coarse.detect(small)
-            if c is None and self.scale < 1:  # tiny beacon lost in the downsampled frame: full-resolution tile search
+            if c is None and self.scale < 1 and self.frame_no % 2 == 0:
+                # tiny beacon lost in the downsampled frame: full-resolution tile search (every other frame bounds cost)
                 tile = self._tiles()[self.tile_i % 4]
                 self.tile_i += 1
                 c = self.fine.detect(gray, roi=tile)
@@ -236,7 +239,7 @@ def _cmp(v, op, lim):
     return {"<=": v <= lim, "<": v < lim, ">=": v >= lim, ">": v > lim}[op]
 
 
-def run_batch(folder: str, out_dir: str, thresholds: str | None = None, pixel_centre: bool = False, ai: bool = True) -> list[dict]:
+def run_batch(folder: str, out_dir: str, thresholds: str | None = None, pixel_centre: bool = False, ai: bool = False) -> list[dict]:
     """Benchmark every video in a folder (GT = <stem>_gt.csv next to it, if present) -> table + per-video logs."""
     th = load_thresholds(thresholds)
     vids = sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv"))

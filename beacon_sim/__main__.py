@@ -29,7 +29,8 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--duration", type=float)
     ap.add_argument("--no-imu", action="store_true", help="disable IMU feed-forward (ablation)")
-    ap.add_argument("--no-ai", action="store_true", help="disable the CNN candidate verifier (ablation)")
+    ap.add_argument("--no-ai", action="store_true", help="disable the CNN candidate verifier in simulation (ablation)")
+    ap.add_argument("--ai", action="store_true", help="enable the CNN verifier in MP4 benchmark mode (off by default)")
     ap.add_argument("--out", default="runs")
     ap.add_argument("--bench")
     ap.add_argument("--gt")
@@ -50,7 +51,7 @@ def main() -> None:
         make_suite(a.make_suite, a.seconds)
     elif a.bench_dir:
         from .video_bench import run_batch
-        rows = run_batch(a.bench_dir, a.out, a.thresholds, a.gt_pixel_centre, ai=not a.no_ai)
+        rows = run_batch(a.bench_dir, a.out, a.thresholds, a.gt_pixel_centre, ai=a.ai)
         print(f"{sum(r['threshold_all_pass'] for r in rows)} / {len(rows)} videos meet every threshold -> {Path(a.out) / 'batch_report.md'}")
     elif a.make_video:
         from .video_bench import make_test_video
@@ -64,7 +65,7 @@ def main() -> None:
         if gt is None:
             cand = Path(a.bench).with_name(Path(a.bench).stem + "_gt.csv")
             gt = str(cand) if cand.exists() else None
-        vb = VideoBenchmark(a.bench, gt, pixel_centre=a.gt_pixel_centre, ai=not a.no_ai)
+        vb = VideoBenchmark(a.bench, gt, pixel_centre=a.gt_pixel_centre, ai=a.ai)
         vb.run()
         s = vb.write(a.out, Path(a.bench).stem + "_bench")
         print(json.dumps(s, indent=2, default=str))
