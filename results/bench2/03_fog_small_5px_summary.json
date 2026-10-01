@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "scenario": "03_fog_small_5px.mp4",
+    "seed": "-",
+    "config_hash": "-",
+    "mode": "MP4 benchmark (PTZ bypassed)",
+    "ground_truth": true,
+    "ai_verifier": false,
+    "video": {
+      "width": 2000,
+      "height": 2000,
+      "fps": 30.0,
+      "frames": 300
+    },
+    "python": "3.11.9",
+    "machine": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel"
+  },
+  "metrics": {
+    "simulation_duration_s": 10.0,
+    "frames": 300,
+    "processing_fps": 382.8,
+    "wall_fps": 58.0,
+    "acquisition_time_s": 0.367,
+    "acquisition_from_fov_s": 0.167,
+    "mean_tracking_error_px": 0.57,
+    "max_tracking_error_px": 1.72,
+    "mean_tracking_error_urad": 62.3,
+    "centroid_rmse_px": 0.996,
+    "mean_centroid_error_px": 0.85,
+    "lock_retention_pct": 98.62,
+    "target_loss_pct": 0.0,
+    "reacquisitions": 4,
+    "max_reacquisition_s": 0.067,
+    "mean_reacquisition_s": 0.067,
+    "processing_ms_mean": 2.61,
+    "processing_ms_p95": 3.26,
+    "pass": {
+      "acquisition_time_s": true,
+      "mean_tracking_error_px": true,
+      "target_loss_pct": true,
+      "max_reacquisition_s": true,
+      "processing_fps": true
+    },
+    "end_to_end_fps": 58.1,
+    "estimated_target_size_px": 6,
+    "false_alarm_frames": 0,
+    "detection_rate_pct": 85.0,
+    "all_pass": true
+  }
+}

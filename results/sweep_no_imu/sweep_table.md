@@ -1,7 +1,8 @@
 | Preset | Seed | Acq (s) | Mean err (px) | Centroid RMSE (px) | Lock ret. (%) | Loss (%) | Max re-acq (s) | Proc FPS | All specs |
 |---|---|---|---|---|---|---|---|---|---|
-| SIH-OFFICIAL | 0 | 0.267 | 3.46 | 0.175 | 100.0 | 0.0 | 0.033 | 200.7 | PASS |
-| NOISY | 0 | 0.333 | 4.69 | 0.204 | 100.0 | 0.0 | 0.033 | 180.9 | PASS |
-| FOG-JITTER | 0 | 0.4 | 7.71 | 0.17 | 100.0 | 0.0 | 0.033 | 203.2 | PASS |
-| RAIN-LOWLIGHT | 0 | 0.1 | 6.35 | 0.177 | 100.0 | 0.0 | 0.033 | 233.8 | PASS |
-| SEVERE | 0 | 0.167 | 38.54 | 0.761 | 96.24 | 0.0 | 0.1 | 197.7 | FAIL: mean_tracking_error_px |
+| SIH-OFFICIAL | 0 | 0.333 | 1.69 | 0.053 | 100.0 | 0.0 | 0.033 | 148.6 | PASS |
+| NOISY | 0 | 0.333 | 3.07 | 0.173 | 100.0 | 0.0 | 0.033 | 136.0 | PASS |
+| FOG-JITTER | 0 | 0.467 | 6.47 | 0.146 | 100.0 | 0.0 | 0.033 | 132.6 | PASS |
+| RAIN-LOWLIGHT | 0 | 0.167 | 2.81 | 0.102 | 100.0 | 0.0 | 0.033 | 134.2 | PASS |
+| SIH-MAX | 0 | 0.133 | 27.64 | 0.168 | 99.54 | 0.11 | 0.167 | 77.3 | FAIL: mean_tracking_error_px |
+| SEVERE | 0 | 0.467 | 14.76 | 0.458 | 96.43 | 0.0 | 0.1 | 108.1 | FAIL: mean_tracking_error_px |
