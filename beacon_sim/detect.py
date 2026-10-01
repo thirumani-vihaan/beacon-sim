@@ -13,6 +13,8 @@ class Detection:
     y: float
     snr: float        # peak response / robust noise
     area: int
+    score: float = 0.0          # classical ranking score
+    p_ai: float | None = None   # AI verifier probability (None when the verifier is off)
 
 
 class BeaconDetector:
@@ -25,13 +27,37 @@ class BeaconDetector:
     """
 
     def __init__(self, target_size: int = 10, k_sigma: float = 6.0, min_snr: float = 9.0, median: bool = True,
-                 min_snr_near: float = 6.5):
+                 min_snr_near: float = 6.5, verifier=None, min_snr_ai: float = 6.0, k_ai: int = 6):
         self.size, self.k, self.min_snr, self.median = target_size, k_sigma, min_snr, median
         self.min_snr_near = min_snr_near  # gated detection: a weaker hit is accepted right where the tracker predicts
         self.edge_frac = 0.08
+        self.verifier = verifier          # optional AI verifier (beacon_sim.ai.Verifier)
+        self.min_snr_ai, self.k_ai = min_snr_ai, k_ai  # with the verifier: lower threshold, top-K candidates
+        self.last_candidates: list[Detection] = []
 
     def detect(self, frame: np.ndarray, predict: tuple[float, float] | None = None, gate: float = 1e9,
                roi: tuple[int, int, int, int] | None = None, near: float = 0.0) -> Detection | None:
+        """Best beacon detection. With the AI verifier: top-K candidates at a lower SNR threshold, clutter rejected."""
+        if self.verifier is None:
+            c = self.candidates(frame, predict, gate, roi, near, k=1)
+            return c[0] if c else None
+        c = self.candidates(frame, predict, gate, roi, near, k=self.k_ai, min_snr=min(self.min_snr, self.min_snr_ai))
+        self.last_candidates = c
+        if not c:
+            return None
+        probs = self.verifier.probs(frame, [(d.x, d.y) for d in c], self.size)
+        best = None
+        for d, pr in zip(c, probs):
+            d.p_ai = float(pr)
+            if pr >= self.verifier.threshold and (best is None or pr + 0.01 * d.score > best.p_ai + 0.01 * best.score):
+                best = d
+        return best
+
+    def candidates(self, frame: np.ndarray, predict: tuple[float, float] | None = None, gate: float = 1e9,
+                   roi: tuple[int, int, int, int] | None = None, near: float = 0.0, k: int = 1,
+                   min_snr: float | None = None) -> list[Detection]:
+        """Up to k refined candidates, best classical score first."""
+        min_far = self.min_snr if min_snr is None else min_snr
         ox = oy = 0
         img = frame
         if roi is not None:
@@ -39,7 +65,7 @@ class BeaconDetector:
             x0, y0 = max(0, x0), max(0, y0)
             x1, y1 = min(frame.shape[1], x1), min(frame.shape[0], y1)
             if x1 - x0 < 16 or y1 - y0 < 16:
-                return None
+                return []
             img, ox, oy = frame[y0:y1, x0:x1], x0, y0
         med = (cv2.medianBlur(img, 3) if self.median else img).astype(np.float32)
         bgk = max(31, self.size * 4 + 1)
@@ -49,16 +75,17 @@ class BeaconDetector:
         sample = resp[::4, ::4]
         mu = float(np.median(sample))
         mad = max(float(np.median(np.abs(sample - mu))) * 1.4826, 1.0)  # floor: clean frames must not threshold at ~0
-        thr = mu + (min(self.k, self.min_snr_near) if (predict is not None and near > 0) else self.k) * mad
+        k_thr = min(self.k, self.min_snr_near) if (predict is not None and near > 0) else self.k
+        thr = mu + min(k_thr, min_far) * mad
         mask = (resp > thr).astype(np.uint8)
         n, lab, stats, cents = cv2.connectedComponentsWithStats(mask, connectivity=8)
         if n <= 1:
-            return None
+            return []
         areas = stats[1:, cv2.CC_STAT_AREA]
         cand = np.where(areas >= 3)[0] + 1
         if cand.size > 25:  # keep the 25 largest blobs: bounded cost even in heavy clutter
             cand = cand[np.argsort(-areas[cand - 1])[:25]]
-        best, best_score = None, -1e9
+        found = []
         for i in cand:
             area = stats[i, cv2.CC_STAT_AREA]
             x, y, w, h = stats[i, :4]
@@ -66,7 +93,7 @@ class BeaconDetector:
             snr = (peak - mu) / mad
             cx, cy = cents[i][0] + ox, cents[i][1] + oy
             close = predict is not None and near > 0 and np.hypot(cx - predict[0], cy - predict[1]) <= near
-            if snr < (self.min_snr_near if close else self.min_snr):
+            if snr < (self.min_snr_near if close else min_far):
                 continue
             m = max(2, self.size // 2)
             if cx < m or cy < m or cx > frame.shape[1] - m or cy > frame.shape[0] - m:
@@ -79,12 +106,14 @@ class BeaconDetector:
                 score -= 0.08 * dist
             size_pen = abs(np.sqrt(area) - self.size) / max(self.size, 1)
             score -= 3.0 * size_pen
-            if score > best_score:
-                best, best_score = (i, cx, cy, snr, area), score
-        if best is None:
-            return None
-        _, cx, cy, snr, area = best
-        return self._refine(med, hp, cx - ox, cy - oy, snr, area, ox, oy)
+            found.append((score, cx, cy, snr, area))
+        found.sort(key=lambda f: -f[0])
+        out = []
+        for score, cx, cy, snr, area in found[:k]:
+            d = self._refine(med, hp, cx - ox, cy - oy, snr, area, ox, oy)
+            d.score = float(score)
+            out.append(d)
+        return out
 
     def _refine(self, med, hp, cx, cy, snr, area, ox, oy) -> Detection:
         r = self.size // 2 + max(4, self.size // 3)
