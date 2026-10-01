@@ -33,6 +33,7 @@ class BeaconDetector:
         self.edge_frac = 0.08
         self.verifier = verifier          # optional AI verifier (beacon_sim.ai.Verifier)
         self.min_snr_ai, self.k_ai = min_snr_ai, k_ai  # with the verifier: lower threshold, top-K candidates
+        self.ai_veto = 0.1  # a classically confident candidate is dropped only if the CNN gives it < 10 %
         self.last_candidates: list[Detection] = []
 
     def detect(self, frame: np.ndarray, predict: tuple[float, float] | None = None, gate: float = 1e9,
@@ -46,10 +47,13 @@ class BeaconDetector:
         if not c:
             return None
         probs = self.verifier.probs(frame, [(d.x, d.y) for d in c], self.size)
+        # cascade: classically confident candidates survive unless the CNN strongly vetoes them; the CNN decides the
+        # ambiguous low-SNR ones (this is where it adds recall without adding false locks)
         best = None
         for d, pr in zip(c, probs):
             d.p_ai = float(pr)
-            if pr >= self.verifier.threshold and (best is None or pr + 0.01 * d.score > best.p_ai + 0.01 * best.score):
+            ok = pr >= self.verifier.threshold or (d.snr >= self.min_snr and pr >= self.ai_veto)
+            if ok and (best is None or pr + 0.01 * d.score > best.p_ai + 0.01 * best.score):
                 best = d
         return best
 
