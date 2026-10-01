@@ -14,6 +14,7 @@ class Detection:
     snr: float        # peak response / robust noise
     area: int
     score: float = 0.0          # classical ranking score
+    close: bool = False         # inside the tracker's near gate (gated detection)
     p_ai: float | None = None   # AI verifier probability (None when the verifier is off)
 
 
@@ -52,7 +53,8 @@ class BeaconDetector:
         best = None
         for d, pr in zip(c, probs):
             d.p_ai = float(pr)
-            ok = pr >= self.verifier.threshold or (d.snr >= self.min_snr and pr >= self.ai_veto)
+            # hits right where the tracker predicts keep the classical gated rule: the CNN guards acquisition
+            ok = pr >= self.verifier.threshold or ((d.snr >= self.min_snr or d.close) and pr >= self.ai_veto)
             if ok and (best is None or pr + 0.01 * d.score > best.p_ai + 0.01 * best.score):
                 best = d
         return best
@@ -110,12 +112,12 @@ class BeaconDetector:
                 score -= 0.08 * dist
             size_pen = abs(np.sqrt(area) - self.size) / max(self.size, 1)
             score -= 3.0 * size_pen
-            found.append((score, cx, cy, snr, area))
+            found.append((score, cx, cy, snr, area, close))
         found.sort(key=lambda f: -f[0])
         out = []
-        for score, cx, cy, snr, area in found[:k]:
+        for score, cx, cy, snr, area, close in found[:k]:
             d = self._refine(med, hp, cx - ox, cy - oy, snr, area, ox, oy)
-            d.score = float(score)
+            d.score, d.close = float(score), bool(close)
             out.append(d)
         return out
 
