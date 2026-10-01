@@ -236,6 +236,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ("Camera & mount", "camera", "colour", "Colour camera (row 2)", "bool", 0, 0, 0, True, None),
         ("Camera & mount", "camera", "wide_field", "Wide-field cue", "bool", 0, 0, 0, True, None),
         ("Camera & mount", "", "imu_aid", "IMU feed-forward", "bool", 0, 0, 0, True, None),
+        ("Camera & mount", "", "ai_verifier", "AI verifier (CNN)", "bool", 0, 0, 0, True, None),
         ("Disturbances", "disturb", "salt_pepper", "Salt & pepper %", "pct", 0, 50, 1, True, None),
         ("Disturbances", "disturb", "gaussian_sigma", "Gaussian σ", "float", 0, 60, 1, True, None),
         ("Disturbances", "disturb", "poisson", "Poisson noise", "bool", 0, 0, 0, True, None),
@@ -446,6 +447,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.sim.ctl = type(self.sim.ctl)(sc.camera)
             elif attr == "wide_field":
                 self.sim.wide_field_cue = bool(val)
+            elif attr == "ai_verifier":
+                self.sim.det.verifier = self.sim.verifier if val else None
             self.sim.retune()
             self._event(self.sim.t, f"set {attr} = {val}", "#b59cff")
         self._update_feasibility()

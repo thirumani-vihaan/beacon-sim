@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import yaml
 
+from .ai import Verifier
 from .config import CameraCfg, Scenario, preset
 from .detect import BeaconDetector
 from .metrics import PerfLog
@@ -78,7 +79,8 @@ class VideoBenchmark:
     """Iterates a video frame by frame; each step returns overlay data for the GUI and logs metrics."""
 
     def __init__(self, video: str, gt_csv: str | None = None, target_size: int | None = None, view=(640, 480),
-                 pixel_centre: bool = False):
+                 pixel_centre: bool = False, ai: bool = True):
+        self.verifier = Verifier.load_default() if ai else None
         self.cap = cv2.VideoCapture(str(video))
         if not self.cap.isOpened():
             raise IOError(f"cannot open {video}")
@@ -102,6 +104,7 @@ class VideoBenchmark:
         self.centroids: list[tuple] = []
         self.log = PerfLog(CameraCfg().urad_per_px, {"scenario": Path(video).name, "seed": "-", "config_hash": "-",
                                                      "mode": "MP4 benchmark (PTZ bypassed)", "ground_truth": bool(self.gt),
+                                                     "ai_verifier": self.verifier is not None,
                                                      "video": {"width": self.W, "height": self.H, "fps": self.fps,
                                                                "frames": self.n_frames}})
         self.t_wall0 = time.perf_counter()
@@ -112,7 +115,8 @@ class VideoBenchmark:
         cs = self.size * self.scale
         self.coarse = BeaconDetector(max(2, round(cs)), median=cs >= 3, min_snr=7.0)
         # single-frame threshold 7 is safe here: the tracker needs 3 consistent hits before it declares LOCK
-        self.fine = BeaconDetector(self.size, min_snr=7.0, min_snr_near=5.0)  # small gate once locked -> weaker hits OK
+        self.fine = BeaconDetector(self.size, min_snr=7.0, min_snr_near=5.0,  # small gate once locked -> weaker hits OK
+                                   verifier=self.verifier, min_snr_ai=6.0)
         self.tile_i = 0
 
     def _tiles(self) -> list[tuple[int, int, int, int]]:
@@ -232,7 +236,7 @@ def _cmp(v, op, lim):
     return {"<=": v <= lim, "<": v < lim, ">=": v >= lim, ">": v > lim}[op]
 
 
-def run_batch(folder: str, out_dir: str, thresholds: str | None = None, pixel_centre: bool = False) -> list[dict]:
+def run_batch(folder: str, out_dir: str, thresholds: str | None = None, pixel_centre: bool = False, ai: bool = True) -> list[dict]:
     """Benchmark every video in a folder (GT = <stem>_gt.csv next to it, if present) -> table + per-video logs."""
     th = load_thresholds(thresholds)
     vids = sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv"))
@@ -241,7 +245,7 @@ def run_batch(folder: str, out_dir: str, thresholds: str | None = None, pixel_ce
     rows = []
     for v in vids:
         gt = v.with_name(v.stem + "_gt.csv")
-        vb = VideoBenchmark(str(v), str(gt) if gt.exists() else None, pixel_centre=pixel_centre)
+        vb = VideoBenchmark(str(v), str(gt) if gt.exists() else None, pixel_centre=pixel_centre, ai=ai)
         vb.run()
         s = vb.write(out, v.stem)
         verdict = {k: _cmp(s.get(k), op, lim) for k, (op, lim) in th.items()}

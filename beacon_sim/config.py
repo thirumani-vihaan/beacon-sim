@@ -75,6 +75,7 @@ class Scenario:
     seed: int = 42
     duration_s: float = 40.0
     imu_aid: bool = True  # gyro/IMU feed-forward of platform motion + LOS jitter (residual 2 % / 15 %)
+    ai_verifier: bool = True  # CNN verifier re-ranks detector candidates (beacon vs clutter); see beacon_sim/ai.py
     camera: CameraCfg = field(default_factory=CameraCfg)
     target: TargetCfg = field(default_factory=TargetCfg)
     disturb: DisturbCfg = field(default_factory=DisturbCfg)

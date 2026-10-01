@@ -29,6 +29,7 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--duration", type=float)
     ap.add_argument("--no-imu", action="store_true", help="disable IMU feed-forward (ablation)")
+    ap.add_argument("--no-ai", action="store_true", help="disable the CNN candidate verifier (ablation)")
     ap.add_argument("--out", default="runs")
     ap.add_argument("--bench")
     ap.add_argument("--gt")
@@ -49,7 +50,7 @@ def main() -> None:
         make_suite(a.make_suite, a.seconds)
     elif a.bench_dir:
         from .video_bench import run_batch
-        rows = run_batch(a.bench_dir, a.out, a.thresholds, a.gt_pixel_centre)
+        rows = run_batch(a.bench_dir, a.out, a.thresholds, a.gt_pixel_centre, ai=not a.no_ai)
         print(f"{sum(r['threshold_all_pass'] for r in rows)} / {len(rows)} videos meet every threshold -> {Path(a.out) / 'batch_report.md'}")
     elif a.make_video:
         from .video_bench import make_test_video
@@ -63,7 +64,7 @@ def main() -> None:
         if gt is None:
             cand = Path(a.bench).with_name(Path(a.bench).stem + "_gt.csv")
             gt = str(cand) if cand.exists() else None
-        vb = VideoBenchmark(a.bench, gt, pixel_centre=a.gt_pixel_centre)
+        vb = VideoBenchmark(a.bench, gt, pixel_centre=a.gt_pixel_centre, ai=not a.no_ai)
         vb.run()
         s = vb.write(a.out, Path(a.bench).stem + "_bench")
         print(json.dumps(s, indent=2, default=str))
@@ -76,6 +77,7 @@ def main() -> None:
                 sc = preset(p)
                 sc.seed = sd
                 sc.imu_aid = not a.no_imu
+                sc.ai_verifier = not a.no_ai
                 if a.duration:
                     sc.duration_s = a.duration
                 s = run_headless(sc, a.out)
@@ -90,6 +92,7 @@ def main() -> None:
         sc = Scenario.load(a.scenario) if a.scenario else preset(a.preset)
         sc.seed = a.seed
         sc.imu_aid = sc.imu_aid and not a.no_imu
+        sc.ai_verifier = sc.ai_verifier and not a.no_ai
         if a.duration:
             sc.duration_s = a.duration
         s = run_headless(sc, a.out)

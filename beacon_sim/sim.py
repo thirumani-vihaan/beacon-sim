@@ -14,6 +14,7 @@ import numpy as np
 
 from .config import Scenario
 from .control import PanTiltController
+from .ai import Verifier
 from .detect import BeaconDetector
 from .feasibility import analyse
 from .metrics import PerfLog
@@ -40,7 +41,8 @@ class Simulation:
                 dsc.target.motion = "random"
             self.decoys.append(Target(dsc, self.rng))
         self.renderer = Renderer(sc, self.rng)
-        self.det = BeaconDetector(sc.target.size)
+        self.verifier = Verifier.load_default()
+        self.det = BeaconDetector(sc.target.size, verifier=self.verifier if sc.ai_verifier else None)
         self.near_k = 1.5
         self.wf_det = BeaconDetector(2, k_sigma=5.0, min_snr=7.0, median=False)
         self.trk = Tracker(self.dt, meas_sigma=self._meas_sigma(), accel_sigma=300.0, imm=True, manoeuvre_sigma=2500.0)
