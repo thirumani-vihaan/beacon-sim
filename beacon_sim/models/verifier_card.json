@@ -1,0 +1,17 @@
+{
+  "model": "BEACON-SIM verifier CNN (3 conv + 2 FC, sigmoid)",
+  "params": 67953,
+  "input": "1x32x32 scale-normalised patch (side = 3 x beacon size, robust z-score)",
+  "training_scenes": 720,
+  "validation_scenes": 180,
+  "train_patches": 27766,
+  "val_patches": 6966,
+  "val_positive": 3579,
+  "val_auc": 0.9989,
+  "val_recall_at_0.5": 0.9712,
+  "val_false_positive_rate_at_0.5": 0.00089,
+  "opencv_vs_torch_max_abs_diff": 5.960464477539063e-08,
+  "seed": 2026,
+  "train_time_s": 4487.8,
+  "torch": "2.14.0+cpu"
+}
