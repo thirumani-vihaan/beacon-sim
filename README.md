@@ -6,7 +6,8 @@
 
 **Find the beacon. Lock it. Keep it.**
 
-![tests](https://img.shields.io/badge/tests-9%20passing-5fd07a)
+![tests](https://img.shields.io/badge/tests-40%20passing-5fd07a)
+![AI](https://img.shields.io/badge/AI-CNN%20verifier%20(ONNX)-7c5cff)
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/vision-OpenCV-5C3EE8?logo=opencv&logoColor=white)
@@ -45,21 +46,27 @@ BEACON-SIM is a complete, reproducible software testbed for that loop:
 
 - **Scene:** a 2000 × 2000 px screen, with a moving square beacon on a sky and star background.
 - **Camera:** a virtual 640 × 480 mono camera with a 4° × 3° field of view, running at 30 Hz. It starts pointed at the screen centre.
-- **Tracking:** a detection → Kalman tracking → PID control pipeline drives the virtual mount, capped at the official 5 °/s slew limit.
+- **Tracking:** a detection → AI verification → IMM tracking → PID control pipeline drives the virtual mount within the official 5–10 °/s slew limits.
 - **Scoring:** every run writes a performance log that is checked against the official ISRO specs.
 
-| Official spec (SIH26169) | Target | BEACON-SIM (worst preset) |
+| Official spec (SIH26169) | Target | BEACON-SIM (worst of 6 presets × 3 seeds) |
 |---|---|---|
-| Acquisition time | ≤ 2 s | **≤ 1.03 s** |
-| Mean tracking error | ≤ 10 px | **≤ 8.5 px** |
+| Acquisition time | ≤ 2 s | **≤ 0.57 s** |
+| Mean tracking error | ≤ 10 px | **≤ 5.6 px** |
 | Target loss | < 5 % | **0 %** |
-| Re-acquisition time | ≤ 1 s | **≤ 0.13 s** |
-| Processing rate | ≥ 20 FPS | **≥ 105 FPS** |
+| Re-acquisition time | ≤ 1 s | **≤ 0.17 s** |
+| Processing rate | ≥ 20 FPS | **≥ 48 FPS** |
+
+With the default 4° / 640 px camera, 1 px = 109 µrad, so the 10 px limit is ≈ 1.1 mrad — the same order as NASA's 1 mrad coarse-pointing requirement for the LCOT → TBIRD uplink.
 
 ## Features
 
 - 🎯 **Sub-pixel detection.** A matched filter, an adaptive median/MAD threshold and an intensity-weighted centroid give about 0.2 px RMSE against ground truth.
-- 🧭 **Robust tracking.** A constant-velocity Kalman filter drives a `SEARCH → ACQUIRE → LOCK → COAST → REACQUIRE` state machine with an adaptive innovation gate.
+- 🤖 **AI verifier.** A 68k-parameter CNN, trained on 34,732 candidates mined from 900 simulated scenes (validation AUC 0.9989 on unseen scenes), vets detector candidates. It runs as ONNX inside OpenCV DNN: CPU only, no deep-learning framework at runtime. See [`results/ai_ablation.md`](results/ai_ablation.md).
+- 🧭 **Robust tracking.** An IMM filter (calm + manoeuvre constant-velocity Kalman models) drives a `SEARCH → ACQUIRE → LOCK → COAST → REACQUIRE` state machine with M-of-N confirmation and gated re-acquisition.
+- 🔭 **Wide-field acquisition cue.** A low-resolution whole-screen sensor (as on real FSOC terminals) cues the narrow camera, with two-frame confirmation.
+- ⚖️ **Physical feasibility checker.** Compares the slew budget with platform + target motion and flags scenarios no real mount could meet.
+- 🧩 **Every official parameter in the GUI.** A tabbed scenario editor covers rows 1–21.5 plus the optional rows (colour camera, multiple targets, shapes, waypoint motion, spiral platform, separate pan/tilt limits, control rate).
 - 🎮 **Realistic mount control.** PID with velocity feed-forward, slew-rate limit, deadzone and an Archimedean spiral search.
 - 🌫️ **Official disturbance set:**
   - noise: salt-and-pepper (up to 10 %), Gaussian (σ up to 20) and Poisson;
@@ -68,29 +75,32 @@ BEACON-SIM is a complete, reproducible software testbed for that loop:
   - turbulence: Rytov-based scintillation, beam wander and blur;
   - occlusions.
 - 🛰️ **IMU feed-forward.** Models gyro-aided stabilisation of platform motion and jitter; it can be turned off for ablation.
-- 🎞️ **Benchmark-2 mode.** Runs on grader MP4 videos with the PTZ loop bypassed and scores centroids against a ground-truth CSV.
-- 📊 **Automatic performance logs.** Per-frame CSV plus a JSON and Markdown summary with PASS/FAIL against each spec and a config hash.
+- 🎞️ **Benchmark-2 mode.** Grader MP4 in, PTZ loop bypassed: auto beacon-size estimation, tiled full-resolution search, colour/any resolution, no-GT support, false-alarm counting, per-frame centroid CSV, and folder batch mode against predefined thresholds.
+- 📊 **Automatic performance logs.** Per-frame CSV, JSON and Markdown summaries plus a self-contained HTML report (charts, PASS/FAIL, feasibility, config) for every run.
 - 🖥️ **Live dashboard.** Camera view, screen overview, lock-state timeline, event log, PASS/FAIL scorecards, error plot, live disturbance sliders and a one-click scripted **Judge demo**.
 - 🔁 **Reproducible.** Seeded scenarios, YAML configs and identical results for identical seeds.
 - 💻 **Lightweight.** Pure Python, CPU only, offline, no GPU and no paid licences.
 
 ## Results
 
-Each preset ran for 3 seeds × 30 s. The raw logs are in [`results/sweep/`](results/sweep/) and the table is in [`results/sweep/sweep_table.md`](results/sweep/sweep_table.md).
+Each preset ran for 3 seeds × 30 s ([`results/sweep/`](results/sweep/), table in [`results/sweep/sweep_table.md`](results/sweep/sweep_table.md)). **18 / 18 runs meet every official spec.**
 
-| Preset | Disturbances | Acquisition | Mean error | Centroid RMSE | Target loss | Max re-acq. | Min FPS | Specs |
-|---|---|---|---|---|---|---|---|---|
-| `SIH-OFFICIAL` | clean, figure-8, occlusion | 0.07–0.43 s | 2.9–3.5 px | 0.18 px | 0 % | 0.03 s | 199 | ✅ 3/3 |
-| `NOISY` | 10 % S&P, σ 20, Poisson, jitter 6 | 0.07–0.57 s | 3.2–3.8 px | 0.20 px | 0 % | 0.03 s | 188 | ✅ 3/3 |
-| `FOG-JITTER` | fog, jitter 12, platform, circle | 0.40–0.50 s | 4.0–4.1 px | 0.17 px | 0 % | 0.03 s | 123 | ✅ 3/3 |
-| `RAIN-LOWLIGHT` | rain, noise, random motion | 0.10–0.37 s | 5.9–6.6 px | 0.18 px | 0 % | 0.03 s | 123 | ✅ 3/3 |
-| `SEVERE` | **everything at max** + turbulence | 0.10–1.03 s | 7.8–8.5 px | 0.71 px | 0 % | 0.13 s | 105 | ✅ 3/3 |
+| Preset | Disturbances | Acquisition | Mean error | Centroid RMSE | Target loss | Max re-acq. | Specs |
+|---|---|---|---|---|---|---|---|
+| `SIH-OFFICIAL` | clean, figure-8, occlusion | 0.07–0.47 s | 0.6–1.7 px | 0.04–0.05 px | 0 % | 0.03 s | ✅ 3/3 |
+| `NOISY` | 10 % S&P, σ 20, Poisson, jitter 6 | 0.07–0.47 s | 0.6–1.7 px | 0.16–0.17 px | 0 % | 0.03 s | ✅ 3/3 |
+| `FOG-JITTER` | fog, jitter 12, platform, circle | 0.47–0.53 s | 1.6–2.0 px | 0.14–0.15 px | 0 % | 0.03 s | ✅ 3/3 |
+| `RAIN-LOWLIGHT` | rain, noise, random motion | 0.17–0.43 s | 2.4–2.7 px | 0.10 px | 0 % | 0.03 s | ✅ 3/3 |
+| `SIH-MAX` | **every official maximum at once** (10 °/s) | 0.13–0.33 s | 4.0–4.1 px | 0.16–0.17 px | 0 % | 0.03 s | ✅ 3/3 |
+| `SEVERE` | SIH maxima + haze + circular platform + turbulence | 0.13–0.57 s | 5.0–5.6 px | 0.44–0.48 px | 0 % | 0.17 s | ✅ 3/3 |
 
-**Benchmark-2** (2000 × 2000 grader-style MP4 at 30 fps, PTZ bypassed): centroid RMSE **0.21 px**, acquisition **0.07 s**, **100 %** lock retention.
+**Benchmark-2** ([`results/bench2/batch_report.md`](results/bench2/batch_report.md)): an 8-video grader-style suite (clean, max noise, fog + 5 px beacon, rain + 20 px, fast random motion in low light, circular beacon, colour 1920 × 1080, beacon-absent gaps), PTZ bypassed. **8 / 8 videos pass** the default thresholds: centroid RMSE 0.06–1.0 px, acquisition 0.07–0.37 s, lock retention ≥ 98.6 %, end-to-end 33–114 FPS including video decode.
 
-**Ablation, IMU feed-forward off** ([`results/sweep_no_imu/`](results/sweep_no_imu/)): `SEVERE` mean error rises from about 8 px to **38.5 px** and fails the spec. All other presets still pass, so the vision pipeline alone handles every single disturbance. Stabilisation is needed only when everything is at maximum at once.
+**AI verifier ablation** ([`results/ai_ablation.md`](results/ai_ablation.md)): fog + max noise + 5 px beacon goes from *never acquired* to acquired in 1.6 s; dim low-light acquisition 1.5 → 1.0 s; SEVERE 5 px centroid RMSE 1.48 → 0.47 px; wrong-lock frames → 0.
 
-> FPS is measured for the tracking pipeline (detection, tracking and control) on a laptop CPU. Scene rendering and the GUI are excluded because they stand in for the real camera.
+**IMU feed-forward ablation** ([`results/sweep_no_imu/`](results/sweep_no_imu/)): without it, `SIH-MAX` mean error rises from 4.1 to 27.6 px and `SEVERE` from about 5.3 to 14.8 px (both fail); the other presets still pass.
+
+> FPS is measured for the tracking pipeline (detection, AI verification, tracking and control) on a laptop CPU. Scene rendering and the GUI stand in for the real camera and are excluded. Benchmark-2 FPS is end-to-end, including decode.
 
 ## Quick start
 
@@ -125,7 +135,10 @@ You can also install it as a package: `pip install -e .[dev]`, then run `beacon-
 | `python -m beacon_sim --sweep --seeds 3 --duration 30 --out runs/sweep` | All presets × seeds, then a comparison table |
 | `python -m beacon_sim --make-video samples/test.mp4 --preset NOISY --seconds 20` | Generate a grader-style MP4 plus a ground-truth CSV |
 | `python -m beacon_sim --bench samples/test.mp4 [--gt gt.csv]` | Benchmark-2, headless |
-| `... --no-imu` | Ablation: switch off IMU feed-forward (headless and sweep only) |
+| `... --no-imu` / `--no-ai` | Ablation: switch off IMU feed-forward / the CNN verifier (headless and sweep) |
+| `python -m beacon_sim --bench-dir samples/suite [--thresholds th.yaml]` | Benchmark-2 batch over a folder → `batch_report.md` |
+| `python -m beacon_sim --make-suite samples/suite` | Generate the 8-video grader-style test suite with ground truth |
+| `python tools/train_verifier.py` | Re-train the AI verifier (PyTorch, CPU) → `beacon_sim/models/verifier.onnx` |
 
 ## How it works
 
@@ -220,15 +233,7 @@ beacon-sim/
 python -m pytest -q
 ```
 
-The suite has 9 tests and runs in about 1.5 minutes. A ready-made GitHub Actions workflow is in [`docs/ci/tests.yml`](docs/ci/tests.yml); copy it to `.github/workflows/` to run the tests on every push. It covers:
-
-- the official specs and camera geometry;
-- sub-pixel detector accuracy on a noisy frame;
-- same-seed determinism;
-- `SIH-OFFICIAL`, `NOISY` and `SEVERE` meeting every spec;
-- occlusion re-acquisition within 1 s;
-- an MP4 benchmark round trip;
-- a YAML round trip.
+The suite has 40 tests (core, every official parameter row, GUI, Benchmark-2, reports, AI verifier) and runs in about 5 minutes. A ready-made GitHub Actions workflow is in [`docs/ci/tests.yml`](docs/ci/tests.yml); copy it to `.github/workflows/` to run the tests on every push. It covers the official spec values and camera geometry, sub-pixel centroid accuracy for every beacon shape and size, determinism, every preset including `SIH-MAX`, re-acquisition, the scenario editor, colour/16:9/no-ground-truth videos, batch thresholds, the HTML report and the AI verifier.
 
 ## Assumptions
 
@@ -239,7 +244,6 @@ The suite has 9 tests and runs in about 1.5 minutes. A ready-made GitHub Actions
 
 ## Roadmap
 
-- [ ] Optional nano-YOLO / ONNX detector on the predicted ROI for cluttered backgrounds
 - [ ] Constant-acceleration and IMM tracker variants
 - [ ] Real camera input (USB / GigE) and serial pan-tilt driver
 - [ ] One-file PyInstaller `.exe` release
